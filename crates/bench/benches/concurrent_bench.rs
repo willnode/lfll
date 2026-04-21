@@ -14,7 +14,7 @@ enum Op {
 }
 
 /// Generates a randomized workload with RNG
-fn generate_workload(num_ops: usize, read_percent: u8) -> Vec<Op> {
+fn generate_workload(num_ops: usize, read_percent: u8, insert_percent: u8) -> Vec<Op> {
     let mut rng = rand::thread_rng();
     let mut ops = Vec::with_capacity(num_ops);
 
@@ -24,7 +24,7 @@ fn generate_workload(num_ops: usize, read_percent: u8) -> Vec<Op> {
 
         if roll < read_percent {
             ops.push(Op::Contains(key));
-        } else if roll < read_percent + ((100 - read_percent) / 2) {
+        } else if roll < read_percent + insert_percent {
             ops.push(Op::Insert(key));
         } else {
             ops.push(Op::Delete(key));
@@ -42,9 +42,10 @@ fn bench_concurrent_ds(c: &mut Criterion) {
     // Increase this to check contains() operation
     // PS: it will be slower than BTreeMap!
     let read_ratio = 0;
+    let insert_ratio = 50;
 
     let thread_workloads: Vec<Vec<Op>> = (0..num_threads)
-        .map(|_| generate_workload(ops_per_thread, read_ratio))
+        .map(|_| generate_workload(ops_per_thread, read_ratio, insert_ratio))
         .collect();
 
     group.bench_function("LockFreeLinkedList", |b| {
