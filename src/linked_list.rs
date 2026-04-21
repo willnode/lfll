@@ -1,93 +1,10 @@
 use core::{
     marker::PhantomData,
     ptr,
-    sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
+    sync::atomic::{AtomicPtr, Ordering},
 };
 
-const MARK_BIT: usize = 1;
-const FLAG_BIT: usize = 2;
-const PTR_MASK: usize = !(MARK_BIT | FLAG_BIT);
-
-/// Successor data for linked list node.
-/// Mostly a helper to pack into single atomic pointer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SuccData<K, V> {
-    /// This Node in pointer, not Arc.
-    /// It's may tempting replace everything in this codebase with Rc, but please no.
-    pub ptr: *mut Node<K, V>,
-    /// Control when the right pointer of this node can be changed anytime.
-    /// When it does, backlinks should be instead until the node is not marked.
-    pub mark: bool,
-    /// Control when this node is marked for deletion.
-    /// When it does, deletion is happening and pointer cannot be changed (mark must false).
-    pub flag: bool,
-}
-
-impl<K, V> SuccData<K, V> {
-    pub fn new(ptr: *mut Node<K, V>, mark: bool, flag: bool) -> Self {
-        Self { ptr, mark, flag }
-    }
-
-    fn into_packed(self) -> usize {
-        let mut val = (self.ptr as usize) & PTR_MASK;
-        if self.mark {
-            val |= MARK_BIT;
-        }
-        if self.flag {
-            val |= FLAG_BIT;
-        }
-        val
-    }
-
-    fn from_packed(val: usize) -> Self {
-        Self {
-            ptr: (val & PTR_MASK) as *mut Node<K, V>,
-            mark: (val & MARK_BIT) != 0,
-            flag: (val & FLAG_BIT) != 0,
-        }
-    }
-}
-
-/// Structure that holds SuccData inside an AtomicUsize
-pub struct AtomicSucc<K, V> {
-    inner: AtomicUsize,
-    _marker: PhantomData<*mut Node<K, V>>,
-}
-
-impl<K, V> AtomicSucc<K, V> {
-    pub fn new(initial: SuccData<K, V>) -> Self {
-        Self {
-            inner: AtomicUsize::new(initial.into_packed()),
-            _marker: PhantomData,
-        }
-    }
-
-    pub fn load(&self, order: Ordering) -> SuccData<K, V> {
-        SuccData::from_packed(self.inner.load(order))
-    }
-
-    pub fn store(&self, data: SuccData<K, V>, order: Ordering) {
-        self.inner.store(data.into_packed(), order);
-    }
-
-    pub fn compare_exchange(
-        &self,
-        expected: SuccData<K, V>,
-        new: SuccData<K, V>,
-        success: Ordering,
-        failure: Ordering,
-    ) -> Result<SuccData<K, V>, SuccData<K, V>> {
-        match self.inner.compare_exchange(
-            expected.into_packed(),
-            new.into_packed(),
-            success,
-            failure,
-        ) {
-            Ok(val) => Ok(SuccData::from_packed(val)),
-            Err(val) => Err(SuccData::from_packed(val)),
-        }
-    }
-}
+use crate::succ::{AtomicSucc, SuccData};
 
 /// LockFreeLinkedList
 pub struct Node<K, V> {
@@ -98,7 +15,7 @@ pub struct Node<K, V> {
     /// When deletion happening, this is set so iteration can recover
     pub backlink: AtomicPtr<Node<K, V>>,
     /// Pointer and flags to another Node
-    pub succ: AtomicSucc<K, V>,
+    pub succ: AtomicSucc<Node<K, V>>,
 }
 
 impl<K, V> Node<K, V> {
@@ -110,13 +27,24 @@ impl<K, V> Node<K, V> {
             succ: AtomicSucc::new(SuccData::new(ptr::null_mut(), false, false)),
         }
     }
+    pub fn load_successor(&self) -> SuccData<Node<K, V>> {
+        self.succ.load(Ordering::Acquire)
+    }
+    pub fn swap_successor(
+        &self,
+        expected: SuccData<Node<K, V>>,
+        new_val: SuccData<Node<K, V>>,
+    ) -> Result<SuccData<Node<K, V>>, SuccData<Node<K, V>>> {
+        self.succ
+            .compare_exchange(expected, new_val, Ordering::SeqCst, Ordering::SeqCst)
+    }
 }
 
 /// Lock Free Linked List, with K for link ordering and V for contained value.
 /// The lock free is achieved through multiple CAS at the cost of leaking the value heap.
 pub struct LockFreeLinkedList<K, V> {
     /// Always a dummy head
-    head: core::sync::atomic::AtomicPtr<Node<K, V>>,
+    head: AtomicPtr<Node<K, V>>,
 }
 
 impl<K, V> LockFreeLinkedList<K, V>
@@ -144,7 +72,7 @@ where
     ) -> (*mut Node<K, V>, bool) {
         unsafe {
             loop {
-                let succ_val = (*prev_node).succ.load(Ordering::Acquire);
+                let succ_val = (*prev_node).load_successor();
 
                 if succ_val.ptr == target_node && succ_val.flag {
                     return (prev_node, false);
@@ -153,19 +81,14 @@ where
                 let expected = SuccData::new(target_node, false, false);
                 let new_val = SuccData::new(target_node, false, true);
 
-                match (*prev_node).succ.compare_exchange(
-                    expected,
-                    new_val,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                ) {
+                match (*prev_node).swap_successor(expected, new_val) {
                     Ok(_) => return (prev_node, true),
                     Err(actual) => {
                         if actual.ptr == target_node && actual.flag {
                             return (prev_node, false);
                         }
 
-                        while (*prev_node).succ.load(Ordering::Acquire).mark {
+                        while (*prev_node).load_successor().mark {
                             let bl = (*prev_node).backlink.load(Ordering::Acquire);
                             if !bl.is_null() {
                                 prev_node = bl;
@@ -189,7 +112,7 @@ where
     unsafe fn try_mark(&self, del_node: *mut Node<K, V>) {
         unsafe {
             loop {
-                let succ_val = (*del_node).succ.load(Ordering::Acquire);
+                let succ_val = (*del_node).load_successor();
 
                 if succ_val.mark {
                     break;
@@ -198,12 +121,7 @@ where
                 let expected = SuccData::new(succ_val.ptr, false, false);
                 let new_val = SuccData::new(succ_val.ptr, true, false);
 
-                match (*del_node).succ.compare_exchange(
-                    expected,
-                    new_val,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                ) {
+                match (*del_node).swap_successor(expected, new_val) {
                     Ok(_) => break,
                     Err(actual) => {
                         if actual.flag {
@@ -220,7 +138,7 @@ where
         unsafe {
             (*del_node).backlink.store(prev_node, Ordering::Release);
 
-            let succ_val = (*del_node).succ.load(Ordering::Acquire);
+            let succ_val = (*del_node).load_successor();
             if !succ_val.mark {
                 self.try_mark(del_node);
             }
@@ -232,18 +150,13 @@ where
     /// Unmark the node such that it can't be changed (not blocking)
     unsafe fn help_marked(&self, prev_node: *mut Node<K, V>, del_node: *mut Node<K, V>) {
         unsafe {
-            let next_node = (*del_node).succ.load(Ordering::Acquire).ptr;
+            let next_node = (*del_node).load_successor().ptr;
 
             let expected = SuccData::new(del_node, false, true);
             let new_val = SuccData::new(next_node, false, false);
 
             // if failed, other thread may already done it
-            let _ = (*prev_node).succ.compare_exchange(
-                expected,
-                new_val,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            );
+            let _ = (*prev_node).swap_successor(expected, new_val);
         }
     }
 
@@ -253,11 +166,11 @@ where
         mut curr_node: *mut Node<K, V>,
     ) -> (*mut Node<K, V>, *mut Node<K, V>) {
         unsafe {
-            let mut next_node = (*curr_node).succ.load(Ordering::Acquire).ptr;
+            let mut next_node = (*curr_node).load_successor().ptr;
 
             while !next_node.is_null() && (*next_node).key < *k {
-                let mut curr_succ_val = (*curr_node).succ.load(Ordering::Acquire);
-                let mut next_succ_val = (*next_node).succ.load(Ordering::Acquire);
+                let mut curr_succ_val = (*curr_node).load_successor();
+                let mut next_succ_val = (*next_node).load_successor();
 
                 while next_succ_val.mark && (!curr_succ_val.mark || curr_succ_val.ptr != next_node)
                 {
@@ -265,19 +178,19 @@ where
                         self.help_marked(curr_node, next_node);
                     }
 
-                    next_node = (*curr_node).succ.load(Ordering::Acquire).ptr;
+                    next_node = (*curr_node).load_successor().ptr;
 
                     if next_node.is_null() {
                         break;
                     }
 
-                    curr_succ_val = (*curr_node).succ.load(Ordering::Acquire);
-                    next_succ_val = (*next_node).succ.load(Ordering::Acquire);
+                    curr_succ_val = (*curr_node).load_successor();
+                    next_succ_val = (*next_node).load_successor();
                 }
 
                 if !next_node.is_null() && (*next_node).key < *k {
                     curr_node = next_node;
-                    next_node = (*curr_node).succ.load(Ordering::Acquire).ptr;
+                    next_node = (*curr_node).load_successor().ptr;
                 }
             }
 
@@ -300,7 +213,7 @@ where
             }
 
             loop {
-                let prev_succ = (*prev_node).succ.load(Ordering::Acquire);
+                let prev_succ = (*prev_node).load_successor();
 
                 if prev_succ.flag {
                     self.help_flagged(prev_node, prev_succ.ptr);
@@ -312,19 +225,14 @@ where
                     let expected = SuccData::new(next_node, false, false);
                     let new_val = SuccData::new(new_node, false, false);
 
-                    match (*prev_node).succ.compare_exchange(
-                        expected,
-                        new_val,
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                    ) {
+                    match (*prev_node).swap_successor(expected, new_val) {
                         Ok(_) => return true,
                         Err(actual) => {
                             if actual.flag {
                                 self.help_flagged(prev_node, actual.ptr);
                             }
 
-                            while (*prev_node).succ.load(Ordering::Acquire).mark {
+                            while (*prev_node).load_successor().mark {
                                 let bl = (*prev_node).backlink.load(Ordering::Acquire);
                                 if !bl.is_null() {
                                     prev_node = bl;
@@ -393,7 +301,7 @@ impl<K: Ord, V> LockFreeLinkedList<K, V> {
         unsafe {
             let head_ptr = self.head.load(Ordering::Acquire);
 
-            let first_node = (*head_ptr).succ.load(Ordering::Acquire).ptr;
+            let first_node = (*head_ptr).load_successor().ptr;
 
             Iter {
                 next_ptr: first_node,
@@ -410,7 +318,7 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
         unsafe {
             while !self.next_ptr.is_null() {
                 let node = &*self.next_ptr;
-                let succ_val = node.succ.load(Ordering::Acquire);
+                let succ_val = node.load_successor();
 
                 self.next_ptr = succ_val.ptr;
 
