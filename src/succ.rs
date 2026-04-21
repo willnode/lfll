@@ -92,3 +92,123 @@ impl<T> Default for AtomicSucc<T> {
         Self::new(SuccData::new(core::ptr::null_mut(), false, false))
     }
 }
+
+pub trait Node<K, V>
+where
+    K: Ord + Default,
+    Self: Sized,
+{
+    fn key(&self) -> K;
+
+    fn load_backlink(&self) -> *mut Self;
+
+    fn store_backlink(&self, new_val: *mut Self);
+
+    fn load_successor(&self) -> SuccData<Self>;
+
+    fn swap_successor(
+        &self,
+        expected: SuccData<Self>,
+        new_val: SuccData<Self>,
+    ) -> Result<SuccData<Self>, SuccData<Self>>;
+}
+
+pub trait List<K, V, N>
+where
+    K: Ord + Default,
+    N: Node<K, V>,
+{
+    unsafe fn search(&self, k: &K, curr_node: *mut N) -> (*mut N, *mut N);
+
+    /// Flag the node for deletion (will block!)
+    unsafe fn try_flag(&self, mut prev_node: *mut N, target_node: *mut N) -> (*mut N, bool) {
+        unsafe {
+            loop {
+                let succ_val = (*prev_node).load_successor();
+
+                if succ_val.ptr == target_node && succ_val.flag {
+                    return (prev_node, false);
+                }
+
+                let expected = SuccData::new(target_node, false, false);
+                let new_val = SuccData::new(target_node, false, true);
+
+                match (*prev_node).swap_successor(expected, new_val) {
+                    Ok(_) => return (prev_node, true),
+                    Err(actual) => {
+                        if actual.ptr == target_node && actual.flag {
+                            return (prev_node, false);
+                        }
+
+                        while (*prev_node).load_successor().mark {
+                            let bl = (*prev_node).load_backlink();
+                            if !bl.is_null() {
+                                prev_node = bl;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        let (new_prev, del_node) = self.search(&(*target_node).key(), prev_node);
+                        if del_node != target_node {
+                            return (core::ptr::null_mut(), false);
+                        }
+                        prev_node = new_prev;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Mark the node such that it can be changed (will block!)
+    unsafe fn try_mark(&self, del_node: *mut N) {
+        unsafe {
+            loop {
+                let succ_val = (*del_node).load_successor();
+
+                if succ_val.mark {
+                    break;
+                }
+
+                let expected = SuccData::new(succ_val.ptr, false, false);
+                let new_val = SuccData::new(succ_val.ptr, true, false);
+
+                match (*del_node).swap_successor(expected, new_val) {
+                    Ok(_) => break,
+                    Err(actual) => {
+                        if actual.flag {
+                            self.help_flagged(del_node, actual.ptr);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Unflag the node from deletion (not blocking)
+    unsafe fn help_flagged(&self, prev_node: *mut N, del_node: *mut N) {
+        unsafe {
+            (*del_node).store_backlink(prev_node);
+
+            let succ_val = (*del_node).load_successor();
+            if !succ_val.mark {
+                self.try_mark(del_node);
+            }
+
+            self.help_marked(prev_node, del_node);
+        }
+    }
+
+    /// Unmark the node such that it can't be changed (not blocking)
+    unsafe fn help_marked(&self, prev_node: *mut N, del_node: *mut N) {
+        unsafe {
+            let next_node = (*del_node).load_successor().ptr;
+
+            let expected = SuccData::new(del_node, false, true);
+            let new_val = SuccData::new(next_node, false, false);
+
+            // if failed, other thread may already done it
+            let _ = (*prev_node).swap_successor(expected, new_val);
+        }
+    }
+}
