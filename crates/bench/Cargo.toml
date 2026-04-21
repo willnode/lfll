@@ -1,0 +1,15 @@
+[package]
+edition = "2024"
+name = "bench"
+version = "0.1.0"
+
+[dependencies]
+lfll = {path = "../.."}
+rand = "0.8"
+
+[dev-dependencies]
+criterion = "0.4"
+
+[[bench]]
+harness = false
+name = "concurrent_bench"
