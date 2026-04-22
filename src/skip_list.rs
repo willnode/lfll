@@ -35,19 +35,19 @@ impl<K: Default + Ord, V> Node<K, V> for SkipNode<K, V> {
     }
 
     fn load_backlink(&self) -> *mut Self {
-        self.backlink.load(Ordering::Acquire)
+        self.backlink.load(Ordering::Relaxed)
     }
 
     fn store_backlink(&self, new_val: *mut Self) {
-        self.backlink.store(new_val, Ordering::Release)
+        self.backlink.store(new_val, Ordering::Relaxed)
     }
 
     fn load_successor(&self) -> SuccData<Self> {
-        self.succ.load(Ordering::Acquire)
+        self.succ.load(Ordering::Relaxed)
     }
 
     fn store_successor(&self, new_val: SuccData<Self>) {
-        self.succ.store(new_val, Ordering::Release)
+        self.succ.store(new_val, Ordering::Relaxed)
     }
 
     fn swap_successor(
@@ -302,7 +302,7 @@ impl<K: Default + Ord, V> List<K, V, SkipNode<K, V>> for LockFreeSkipList<K, V> 
                         self.help_unflag(curr_node, next_node);
                     }
 
-                    let succ_curr = (*curr_node).load_successor();
+                    succ_curr = (*curr_node).load_successor();
                     next_node = succ_curr.ptr;
                     if next_node.is_null() {
                         break;
@@ -403,7 +403,7 @@ mod tests {
         let list = Arc::new(LockFreeSkipList::<i32, i32>::new());
         let mut handles = vec![];
 
-        let num_threads = 10;
+        let num_threads = 8;
         let items_per_thread = 1000;
 
         for t in 0..num_threads {

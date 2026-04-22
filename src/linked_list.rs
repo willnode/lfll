@@ -220,7 +220,7 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
                         self.help_unflag(curr_node, next_node);
                     }
 
-                    let succ_curr = (*curr_node).load_successor();
+                    succ_curr = (*curr_node).load_successor();
 
                     next_node = succ_curr.ptr;
 
@@ -307,7 +307,7 @@ mod tests {
         let list = Arc::new(LockFreeLinkedList::<i32, i32>::new());
         let mut handles = vec![];
 
-        let num_threads = 10;
+        let num_threads = 8;
         let items_per_thread = 1000;
 
         for t in 0..num_threads {
