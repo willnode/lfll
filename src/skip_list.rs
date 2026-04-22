@@ -5,7 +5,6 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 use alloc::boxed::Box;
 
 use crate::Seedable;
-use crate::succ::NodeIter;
 use crate::succ::SuccData;
 use crate::succ::{AtomicSucc, List, Node};
 

@@ -8,20 +8,20 @@ Data types:
 + `LockFreeSkipList` ordered linked list with hash table
 + `LockFreeDequeList` LIFO/FIFO non-ordered linked list
 
-Benchmark as of [1964b54](https://github.com/willnode/lfll/commit/1964b545ec2e90b328121073cd8a44b871f68b94) running from [crates/bench](./crates/bench/) on Virtualized Linux on top of Mac M4:
+Benchmark as of [59e354a](https://github.com/willnode/lfll/commit/59e354a9ea3ec0acf4216ef9c3d19267425d8f8a) running from [crates/bench](./crates/bench/) on Virtualized Linux on top of Mac M4 (lower is better):
 
-| Data Structure     | R80% / W10% / D10%(50 Keys) | R70% / W20% / D10%(1,000 Keys) | R50% / W50% / D0%(10,000 Keys) | R0% / W60% / D40%(100,000 Keys) |
-|--------------------|-----------------------------|--------------------------------|--------------------------------|---------------------------------|
-| LockFreeLinkedList | 862.01 µs                   | 6.0297 ms                      | 120.24 ms                      | 280.98 ms                       |
-| LockFreeSkipList   | 1.5449 ms                   | 5.4119 ms                      | 95.564 ms                      | 86.065 ms                       |
-| LockFreeDequeList  | **611.37 µs**               | **2.7976 ms**                  | 38.924 ms                      | 81.102 ms                       |
-| Mutex\<Vec\>       | 1.8324 ms                   | 7.4807 ms                      | 10.366 ms                      | 76.339 ms                       |
-| Mutex\<BTreeMap\>  | 1.7751 ms                   | 3.1569 ms                      | **5.1027 ms**                  | **7.3387 ms**                   |
-| RwLock\<BTreeMap\> | 2.6591 ms                   | 4.2370 ms                      | 6.3475 ms                      | 8.3787 ms                       |
+| Data Structure         | R70% / W20% / D10%(50 Keys) | R50% / W50% / D0%(2,000 Keys) | R0% / W100% / D0%(20,000 Keys) | R0% / W50% / D50%(20,000 Keys) |
+|------------------------|-----------------------------|-------------------------------|--------------------------------|--------------------------------|
+| LockFreeLinkedList     | 1.0879 ms                   | 19.450 ms                     | 520.53 ms                      | 204.84 ms                      |
+| LockFreeSkipList       | 2.7720 ms                   | 19.706 ms                     | 682.71 ms                      | 32.979 ms                      |
+| LockFreeDequeList      | 1.5829 ms                   | 16.517 ms                     | 10.905 ms                      | 86.231 ms                      |
+| LockFreeDequeListFront | 54.618 ms                   | 161.15 ms                     | 9.5152 ms                      | 179.31 ms                      |
+| Mutex\<Vec\>             | 3.7469 ms                   | 8.9529 ms                     | 961.27 µs                      | 140.24 ms                      |
+| Mutex\<BTreeMap\>        | 1.9678 ms                   | 8.9093 ms                     | 14.999 ms                      | 12.034 ms                      |
+| RwLock\<BTreeMap\>       | 3.2602 ms                   | 11.925 ms                     | 17.122 ms                      | 12.722 ms                      |
 
 In summary: 
-+ `LockFreeLinkedList` is good for short list, while `LockFreeSkipList` is scalable. Use either if you want them ordered
-+ `LockFreeDequeList` generally fast if you always want to push new items at first or last item in the linked list
-+ Beware of lock contention of insertion `LockFreeDequeList`, because threads racing for atomic locks at start/end insertion
-+ `BTreeMap` is highly efficient at large keys because of amortized insert, while `Vec` is suffering at key-based deletion
-+ All `LockFree` sacrifices write speed at very large keys, but the gain of being lock-free for parallel reading is not measured here
++ `LockFreeLinkedList` is faster in insertion than `LockFreeSkipList` but the latter is scalable. Use either if you want them ordered
++ `LockFreeDequeList` is fast to push new items at the end of the linked list, while pushing in front can introduce contention at searching
++ `LockFreeSkipList` has similar searching and deletoin performance to `BTreeMap` while insertion is worse because the latter is using amortized insert
++ All `LockFree` delete performance has the same performance with searching, either using `LockFreeSkipList` or remembering the node pointer to save the `O(N)` time it takes would help in practical speed.

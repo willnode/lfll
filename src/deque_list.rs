@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicI64, AtomicPtr, Ordering};
 
-use crate::{LinkedNode, List, LockFreeLinkedList, Node, succ::NodeIter};
+use crate::{LinkedNode, List, LockFreeLinkedList, Node};
 
 type K = i64;
 
