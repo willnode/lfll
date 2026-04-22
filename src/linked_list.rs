@@ -40,19 +40,19 @@ impl<K: Default + Ord, V> Node<K, V> for LinkedNode<K, V> {
     }
 
     fn load_backlink(&self) -> *mut Self {
-        self.backlink.load(Ordering::Acquire)
+        self.backlink.load(Ordering::Relaxed)
     }
 
     fn store_backlink(&self, new_val: *mut Self) {
-        self.backlink.store(new_val, Ordering::Release)
+        self.backlink.store(new_val, Ordering::Relaxed)
     }
 
     fn load_successor(&self) -> SuccData<Self> {
-        self.succ.load(Ordering::Acquire)
+        self.succ.load(Ordering::Relaxed)
     }
 
     fn store_successor(&self, new_val: SuccData<Self>) {
-        self.succ.store(new_val, Ordering::Release)
+        self.succ.store(new_val, Ordering::Relaxed)
     }
 
     fn swap_successor(
@@ -77,6 +77,18 @@ where
     K: Default + Ord,
 {
     pub fn new() -> Self {
+        let mut r = Self::uninit();
+        r.init();
+        r
+    }
+
+    pub const fn uninit() -> Self {
+        Self {
+            head: AtomicPtr::new(ptr::null_mut()),
+        }
+    }
+
+    pub fn init(&mut self) {
         let dummy_head = Box::into_raw(Box::new(LinkedNode {
             key: K::default(),
             element: None,
@@ -84,9 +96,7 @@ where
             succ: AtomicSucc::default(),
         }));
 
-        Self {
-            head: AtomicPtr::new(dummy_head),
-        }
+        self.head = AtomicPtr::new(dummy_head);
     }
 
     /// Insert into linked list. Key must unique, return true if inserted.
@@ -96,7 +106,7 @@ where
     }
 
     pub unsafe fn head_node(&self) -> *mut LinkedNode<K, V> {
-        self.head.load(Ordering::Acquire)
+        self.head.load(Ordering::Relaxed)
     }
 
     /// Insert into linked list from hinted node position. Key must unique, return true if inserted.
@@ -163,7 +173,7 @@ where
     /// This operation is O(N) and does not reclaim allocation from Value.
     pub fn delete(&self, key: &K) -> bool {
         unsafe {
-            let head_ptr = self.head.load(Ordering::Acquire);
+            let head_ptr = self.head.load(Ordering::Relaxed);
             let (prev_node, del_node) = self.search_from(key, head_ptr);
 
             if del_node.is_null() || (*del_node).key != *key {

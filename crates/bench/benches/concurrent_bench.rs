@@ -188,6 +188,36 @@ fn bench_concurrent_ds(c: &mut Criterion) {
         );
 
         group.bench_with_input(
+            BenchmarkId::new("LockFreeDequeListFront", &scenario_id),
+            &thread_workloads,
+            |b, workloads| {
+                b.iter(|| {
+                    let list = Arc::new(LockFreeDequeList::<i64>::new());
+                    thread::scope(|s| {
+                        for workload in workloads {
+                            let list_ref = &list;
+                            s.spawn(move || {
+                                for &op in workload {
+                                    match op {
+                                        Op::Contains(k) => {
+                                            black_box(list_ref.contains(&k.into()));
+                                        }
+                                        Op::Insert(k) => {
+                                            black_box(list_ref.push_front(k.into()));
+                                        }
+                                        Op::Delete(k) => {
+                                            black_box(list_ref.delete(&k.into()));
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    });
+                })
+            },
+        );
+
+        group.bench_with_input(
             BenchmarkId::new("Mutex<Vec>", &scenario_id),
             &thread_workloads,
             |b, workloads| {

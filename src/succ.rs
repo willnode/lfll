@@ -11,7 +11,7 @@ const PTR_MASK: usize = !(MARK_BIT | FLAG_BIT);
 
 /// Successor data for linked list node.
 /// Mostly a helper to pack into single atomic pointer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuccData<T> {
     /// This Node in pointer, not Arc.
     /// It's may tempting replace everything in this codebase with Rc, but please no.
