@@ -56,7 +56,7 @@ impl<N> GarbageCollector<N> for ThreadedGC {
 }
 
 impl ScopedGarbageCollector for ThreadedGC {
-    fn new() -> std::sync::Arc<Mutex<Self>> {
+    fn new() -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             garbage: Vec::new(),
         }))

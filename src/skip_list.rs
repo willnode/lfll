@@ -1,6 +1,9 @@
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
 use crate::Seedable;
 use crate::succ::NodeIter;
 use crate::succ::SuccData;
@@ -349,14 +352,16 @@ impl<K: Default + Ord, V> List<K, V, SkipNode<K, V>> for LockFreeSkipList<K, V> 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    #[cfg(feature = "std")]
+    use crate::{DefaultGC, ScopedGarbageCollector};
+    #[cfg(not(feature = "std"))]
+    use alloc::{vec, vec::Vec};
+    #[cfg(feature = "std")]
     use std::{
         sync::{Arc, Mutex},
         thread,
     };
-
-    use crate::{ScopedGarbageCollector, ThreadedGC};
-
-    use super::*;
 
     #[test]
     fn test_basic_sequential_operations() {
@@ -388,6 +393,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_concurrent_inserts() {
         let list = Arc::new(LockFreeSkipList::<i32, i32>::new());
         let mut handles = vec![];
@@ -419,6 +425,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_concurrent_inserts_and_deletes() {
         let list = Arc::new(LockFreeSkipList::<i32, i32>::new());
         let mut handles = vec![];
@@ -427,7 +434,7 @@ mod tests {
             list.insert(i, i);
         }
 
-        let collector: Arc<Mutex<ThreadedGC>> = ThreadedGC::new();
+        let collector: Arc<Mutex<DefaultGC>> = DefaultGC::new();
 
         let list_clone1 = Arc::clone(&list);
         let collector1 = Arc::clone(&collector);

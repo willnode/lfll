@@ -5,6 +5,10 @@
 //!
 //! See `LockFreeLinkedList`, `LockFreeSkipList`, `LockFreeDequeList` for more information about the usage.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
 mod linked_list;
 pub use linked_list::*;
 pub(crate) mod succ;

@@ -97,12 +97,13 @@ impl<T> List<i64, T, LinkedNode<i64, T>> for LockFreeDequeList<T> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "std")]
+    use crate::{DefaultGC, ScopedGarbageCollector};
+    #[cfg(feature = "std")]
     use std::{
         sync::{Arc, Mutex},
         thread,
     };
-
-    use crate::{ScopedGarbageCollector, ThreadedGC};
 
     use super::*;
 
@@ -131,6 +132,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_concurrent_inserts() {
         let list = Arc::new(LockFreeDequeList::<i64>::new());
         let mut handles = vec![];
@@ -162,6 +164,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_concurrent_inserts_front() {
         let list = Arc::new(LockFreeDequeList::<i64>::new());
         let mut handles = vec![];
@@ -193,6 +196,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_concurrent_inserts_and_deletes() {
         let list = Arc::new(LockFreeDequeList::<i64>::new());
         let mut handles = vec![];
@@ -201,7 +205,7 @@ mod tests {
             list.push_back(i);
         }
 
-        let collector: Arc<Mutex<ThreadedGC>> = ThreadedGC::new();
+        let collector: Arc<Mutex<DefaultGC>> = DefaultGC::new();
 
         let list_clone1 = Arc::clone(&list);
         let collector1 = Arc::clone(&collector);
