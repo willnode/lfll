@@ -207,10 +207,11 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
         mut curr_node: *mut LinkedNode<K, V>,
     ) -> (*mut LinkedNode<K, V>, *mut LinkedNode<K, V>) {
         unsafe {
-            let mut next_node = (*curr_node).load_successor().ptr;
+            let mut succ_curr = (*curr_node).load_successor();
+            let mut next_node = succ_curr.ptr;
 
             while !next_node.is_null() && (*next_node).key < *k {
-                let mut curr_succ_val = (*curr_node).load_successor();
+                let mut curr_succ_val = succ_curr;
                 let mut next_succ_val = (*next_node).load_successor();
 
                 while next_succ_val.mark && (!curr_succ_val.mark || curr_succ_val.ptr != next_node)
@@ -233,7 +234,8 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
 
                 if !next_node.is_null() && (*next_node).key < *k {
                     curr_node = next_node;
-                    next_node = (*curr_node).load_successor().ptr;
+                    succ_curr = (*curr_node).load_successor();
+                    next_node = succ_curr.ptr;
                 } else {
                     break;
                 }

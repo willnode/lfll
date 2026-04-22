@@ -280,10 +280,11 @@ impl<K: Default + Ord, V> List<K, V, SkipNode<K, V>> for LockFreeSkipList<K, V> 
         mut curr_node: *mut SkipNode<K, V>,
     ) -> (*mut SkipNode<K, V>, *mut SkipNode<K, V>) {
         unsafe {
-            let mut next_node = (*curr_node).load_successor().ptr;
+            let mut succ_curr = (*curr_node).load_successor();
+            let mut next_node = succ_curr.ptr;
 
             while !next_node.is_null() && (*next_node).key < *k {
-                let mut curr_succ_val = (*curr_node).load_successor();
+                let mut curr_succ_val = succ_curr;
                 let mut next_succ_val = (*next_node).load_successor();
 
                 let tower_root = (*next_node).tower_root;
@@ -313,7 +314,8 @@ impl<K: Default + Ord, V> List<K, V, SkipNode<K, V>> for LockFreeSkipList<K, V> 
 
                 if !next_node.is_null() && (*next_node).key < *k {
                     curr_node = next_node;
-                    next_node = (*curr_node).load_successor().ptr;
+                    succ_curr = (*curr_node).load_successor();
+                    next_node = succ_curr.ptr;
                 } else {
                     break;
                 }
