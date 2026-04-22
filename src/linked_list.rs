@@ -219,19 +219,23 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
                         self.help_unflag(curr_node, next_node);
                     }
 
-                    next_node = (*curr_node).load_successor().ptr;
+                    let succ_curr = (*curr_node).load_successor();
+
+                    next_node = succ_curr.ptr;
 
                     if next_node.is_null() {
                         break;
                     }
 
-                    curr_succ_val = (*curr_node).load_successor();
+                    curr_succ_val = succ_curr;
                     next_succ_val = (*next_node).load_successor();
                 }
 
                 if !next_node.is_null() && (*next_node).key < *k {
                     curr_node = next_node;
                     next_node = (*curr_node).load_successor().ptr;
+                } else {
+                    break;
                 }
             }
 
@@ -240,7 +244,7 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
     }
     unsafe fn search_node(&self, key: &K) -> Option<*mut LinkedNode<K, V>> {
         unsafe {
-            let head_ptr = self.head.load(Ordering::Acquire);
+            let head_ptr = self.head.load(Ordering::Relaxed);
             let (_, next_node) = self.search_from(key, head_ptr);
 
             if !next_node.is_null() && (*next_node).key == *key {
