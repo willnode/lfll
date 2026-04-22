@@ -5,7 +5,7 @@ use core::{
 
 use crate::succ::{AtomicSucc, List, Node, NodeIter, SuccData};
 
-/// LockFreeLinkedList node
+/// `LockFreeLinkedList` node internal data.
 pub struct LinkedNode<K, V> {
     /// The key helps Linked List in Ordered fashion
     pub key: K,
@@ -63,8 +63,8 @@ impl<K: Default + Ord, V> Node<K, V> for LinkedNode<K, V> {
     }
 }
 
-/// Lock Free Linked List, with K for link ordering and V for contained value.
-/// The lock free is achieved through multiple CAS at the cost of leaking the value heap.
+/// Lock Free Linked List, provides minimal implementation to ordered linked list.
+/// Provides very optimal performance for short linked list without key lookup table.
 pub struct LockFreeLinkedList<K, V> {
     /// Always a dummy head
     head: AtomicPtr<LinkedNode<K, V>>,
@@ -180,7 +180,7 @@ where
 
     pub fn iter(&self) -> NodeIter<'_, K, V, LinkedNode<K, V>> {
         unsafe {
-            let head_ptr = self.head.load(Ordering::Acquire);
+            let head_ptr = self.head_node();
             let first_node = (*head_ptr).load_successor().ptr;
             NodeIter::new(first_node)
         }

@@ -1,9 +1,11 @@
 use core::sync::atomic::{AtomicI64, AtomicPtr, Ordering};
 
-use crate::{LinkedNode, List, LockFreeLinkedList};
+use crate::{LinkedNode, List, LockFreeLinkedList, Node, succ::NodeIter};
 
 type K = i64;
 
+/// Lock Free Deque List, provides implementation to LIFO/FIFO linked list with indexed i64 managed internally.
+/// Provides very optimal `push_back()` and `push_front()` function compared to vanilla linked list.
 pub struct LockFreeDequeList<T> {
     list: LockFreeLinkedList<K, T>,
     front_seq: AtomicI64,
@@ -63,12 +65,19 @@ impl<T> LockFreeDequeList<T> {
             }
         }
 
-        // Return the key for tracking/deletion
         seq
     }
 
-    pub fn delete(&self, key: K) -> bool {
-        self.list.delete(&key)
+    pub fn delete(&self, key: &K) -> bool {
+        self.list.delete(key)
+    }
+
+    pub fn iter(&self) -> NodeIter<'_, K, T, LinkedNode<K, T>> {
+        unsafe {
+            let head_ptr = self.head_node();
+            let first_node = (*head_ptr).load_successor().ptr;
+            NodeIter::new(first_node)
+        }
     }
 }
 
@@ -105,9 +114,12 @@ mod tests {
         assert!(list.contains(&3));
         assert!(!list.contains(&4), "Should not contain uninserted keys");
 
-        assert!(list.delete(2), "Deleting existing element should succeed");
+        assert!(list.delete(&2), "Deleting existing element should succeed");
         assert!(!list.contains(&2), "Element should be gone after deletion");
-        assert!(!list.delete(5), "Deleting non-existent element should fail");
+        assert!(
+            !list.delete(&5),
+            "Deleting non-existent element should fail"
+        );
 
         assert!(list.contains(&1));
         assert!(list.contains(&3));
@@ -187,14 +199,14 @@ mod tests {
         let list_clone1 = Arc::clone(&list);
         handles.push(thread::spawn(move || {
             for i in (2..=1000).step_by(2) {
-                list_clone1.delete(i);
+                list_clone1.delete(&i);
             }
         }));
 
         let list_clone2 = Arc::clone(&list);
         handles.push(thread::spawn(move || {
             for i in (1..=1000).step_by(2) {
-                list_clone2.delete(i);
+                list_clone2.delete(&i);
             }
         }));
 
