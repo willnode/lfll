@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
 use core::marker::PhantomData;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
