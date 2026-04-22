@@ -1,7 +1,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
-use crate::succ::{AtomicSucc, List, Node, NodeIter, SuccData};
+use crate::succ::{AtomicSucc, List, Node, SuccData};
 use core::{
     ptr,
     sync::atomic::{AtomicPtr, Ordering},
@@ -105,10 +105,6 @@ where
         unsafe { !self.insert_from(key, value, self.head_node()).is_null() }
     }
 
-    pub unsafe fn head_node(&self) -> *mut LinkedNode<K, V> {
-        self.head.load(Ordering::Relaxed)
-    }
-
     /// Insert into linked list from hinted node position. Key must unique, return true if inserted.
     pub unsafe fn insert_from(
         &self,
@@ -189,14 +185,6 @@ where
             result
         }
     }
-
-    pub fn iter(&self) -> NodeIter<'_, K, V, LinkedNode<K, V>> {
-        unsafe {
-            let head_ptr = self.head_node();
-            let first_node = (*head_ptr).load_successor().ptr;
-            NodeIter::new(first_node)
-        }
-    }
 }
 
 impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K, V> {
@@ -255,6 +243,9 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
                 None
             }
         }
+    }
+    unsafe fn head_node(&self) -> *mut LinkedNode<K, V> {
+        self.head.load(Ordering::Relaxed)
     }
 }
 
@@ -325,11 +316,20 @@ mod tests {
             handle.join().unwrap();
         }
 
+        let total_items = (num_threads * items_per_thread) as usize;
+        let mut expected_keys = Vec::with_capacity(total_items);
+
         for t in 0..num_threads {
             for i in 0..items_per_thread {
                 let key = (t * items_per_thread) + i + 1;
-                assert!(list.contains(&key), "Missing key: {}", key);
+                expected_keys.push(key);
             }
+        }
+
+        let results = list.contains_many(&expected_keys);
+
+        for (index, &was_found) in results.iter().enumerate() {
+            assert!(was_found, "Missing key: {}", expected_keys[index]);
         }
     }
 
@@ -367,10 +367,10 @@ mod tests {
             handle.join().unwrap();
         }
 
-        for i in 1..=1000 {
-            assert!(!list.contains(&i), "Key {} should have been deleted", i);
+        let results = list.contains_many(&(1..=1000).collect::<Vec<_>>()[..]);
+        for (i, &was_found) in results.iter().enumerate() {
+            assert!(!was_found, "Key {} should have been deleted", i);
         }
-
         assert_eq!(collector.lock().unwrap().prune(), 1000);
     }
 

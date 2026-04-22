@@ -34,10 +34,6 @@ impl<T> LockFreeDequeList<T> {
         unsafe { (*self.list.head_node()).key = i64::MIN };
     }
 
-    pub unsafe fn head_node(&self) -> *mut LinkedNode<K, T> {
-        unsafe { self.list.head_node() }
-    }
-
     pub unsafe fn tail_node(&self) -> *mut LinkedNode<K, T> {
         self.tail_hint.load(Ordering::Acquire)
     }
@@ -89,14 +85,6 @@ impl<T> LockFreeDequeList<T> {
     pub fn delete(&self, key: &K) -> bool {
         self.list.delete(key)
     }
-
-    pub fn iter(&self) -> NodeIter<'_, K, T, LinkedNode<K, T>> {
-        unsafe {
-            let head_ptr = self.head_node();
-            let first_node = (*head_ptr).load_successor().ptr;
-            NodeIter::new(first_node)
-        }
-    }
 }
 
 impl<T> List<i64, T, LinkedNode<i64, T>> for LockFreeDequeList<T> {
@@ -110,6 +98,10 @@ impl<T> List<i64, T, LinkedNode<i64, T>> for LockFreeDequeList<T> {
 
     unsafe fn search_node(&self, key: &i64) -> Option<*mut LinkedNode<i64, T>> {
         unsafe { self.list.search_node(key) }
+    }
+
+    unsafe fn head_node(&self) -> *mut LinkedNode<K, T> {
+        unsafe { self.list.head_node() }
     }
 }
 
@@ -173,12 +165,21 @@ mod tests {
             handle.join().unwrap();
         }
 
-        // for t in 0..num_threads {
-        //     for i in 0..items_per_thread {
-        //         let key = (t * items_per_thread) + i + 1;
-        //         assert!(list.contains(&key), "Missing key: {}", key);
-        //     }
-        // }
+        let total_items = (num_threads * items_per_thread) as usize;
+        let mut expected_keys = Vec::with_capacity(total_items);
+
+        for t in 0..num_threads {
+            for i in 0..items_per_thread {
+                let key = (t * items_per_thread) + i + 1;
+                expected_keys.push(key);
+            }
+        }
+
+        let results = list.contains_many(&expected_keys);
+
+        for (index, &was_found) in results.iter().enumerate() {
+            assert!(was_found, "Missing key: {}", expected_keys[index]);
+        }
     }
 
     #[test]
@@ -205,11 +206,20 @@ mod tests {
             handle.join().unwrap();
         }
 
+        let total_items = (num_threads * items_per_thread) as usize;
+        let mut expected_keys = Vec::with_capacity(total_items);
+
         for t in 0..num_threads {
             for i in 0..items_per_thread {
                 let key = -(t * items_per_thread) - i;
-                assert!(list.contains(&key), "Missing key: {}", key);
+                expected_keys.push(key);
             }
+        }
+
+        let results = list.contains_many(&expected_keys);
+
+        for (index, &was_found) in results.iter().enumerate() {
+            assert!(was_found, "Missing key: {}", expected_keys[index]);
         }
     }
 
@@ -247,10 +257,10 @@ mod tests {
             handle.join().unwrap();
         }
 
-        for i in 1..=1000 {
-            assert!(!list.contains(&i), "Key {} should have been deleted", i);
+        let results = list.contains_many(&(1..=1000).collect::<Vec<_>>()[..]);
+        for (i, &was_found) in results.iter().enumerate() {
+            assert!(!was_found, "Key {} should have been deleted", i);
         }
-
         assert_eq!(collector.lock().unwrap().prune(), 1000);
     }
 }

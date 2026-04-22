@@ -55,28 +55,28 @@ fn bench_concurrent_ds(c: &mut Criterion) {
 
     let scenarios = vec![
         BenchConfig {
-            read_percent: 80,
-            insert_percent: 10,
-            delete_percent: 10,
-            max_key: 50,
-        },
-        BenchConfig {
             read_percent: 70,
             insert_percent: 20,
             delete_percent: 10,
-            max_key: 1000,
+            max_key: 50,
         },
         BenchConfig {
             read_percent: 50,
             insert_percent: 50,
             delete_percent: 0,
-            max_key: 10000,
+            max_key: 2000,
         },
         BenchConfig {
             read_percent: 0,
-            insert_percent: 60,
-            delete_percent: 40,
-            max_key: 100000,
+            insert_percent: 100,
+            delete_percent: 0,
+            max_key: 20000,
+        },
+        BenchConfig {
+            read_percent: 0,
+            insert_percent: 50,
+            delete_percent: 50,
+            max_key: 20000,
         },
     ];
 

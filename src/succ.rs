@@ -195,8 +195,43 @@ where
 
     unsafe fn search_node(&self, key: &K) -> Option<*mut N>;
 
+    unsafe fn head_node(&self) -> *mut N;
+
     fn contains(&self, key: &K) -> bool {
         unsafe { self.search_node(key) }.is_some()
+    }
+
+    fn contains_many(&self, keys: &[K]) -> Vec<bool> {
+        let mut results = vec![false; keys.len()];
+        if keys.is_empty() {
+            return results;
+        }
+
+        let mut sorted_keys: Vec<(usize, &K)> = keys.iter().enumerate().collect();
+
+        sorted_keys.sort_unstable_by_key(|&(_, k)| k);
+
+        unsafe {
+            let mut curr_start = self.head_node();
+
+            for (original_index, target_key) in sorted_keys {
+                let (prev, next) = self.search_from(target_key, curr_start);
+
+                if !next.is_null() && *(*next).key() == *target_key {
+                    results[original_index] = true;
+
+                    curr_start = next;
+                } else {
+                    results[original_index] = false;
+
+                    if !prev.is_null() {
+                        curr_start = prev;
+                    }
+                }
+            }
+        }
+
+        results
     }
 
     fn get<'a>(&'a self, key: &'a K) -> Option<&'a V>
@@ -206,6 +241,14 @@ where
         unsafe { self.search_node(key) }
             .map(|s| unsafe { (*s).element() })
             .flatten()
+    }
+
+    fn iter(&self) -> NodeIter<'_, K, V, N> {
+        unsafe {
+            let head_ptr = self.head_node();
+            let first_node = (*head_ptr).load_successor().ptr;
+            NodeIter::new(first_node)
+        }
     }
 
     /// Flag the node for deletion (will block!)
