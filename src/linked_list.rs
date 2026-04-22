@@ -1,9 +1,8 @@
+use crate::succ::{AtomicSucc, List, Node, NodeIter, SuccData};
 use core::{
     ptr,
     sync::atomic::{AtomicPtr, Ordering},
 };
-
-use crate::succ::{AtomicSucc, List, Node, NodeIter, SuccData};
 
 /// `LockFreeLinkedList` node internal data.
 pub struct LinkedNode<K, V> {
@@ -244,6 +243,8 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
 mod tests {
     use std::{sync::Arc, thread};
 
+    use crate::{ScopedGarbageCollector, ThreadedGC};
+
     use super::*;
 
     #[test]
@@ -320,6 +321,7 @@ mod tests {
             for i in (2..=1000).step_by(2) {
                 list_clone1.delete(&i);
             }
+            assert!(ThreadedGC::prune_now() > 400);
         }));
 
         let list_clone2 = Arc::clone(&list);
@@ -327,6 +329,7 @@ mod tests {
             for i in (1..=1000).step_by(2) {
                 list_clone2.delete(&i);
             }
+            assert!(ThreadedGC::prune_now() > 400);
         }));
 
         for handle in handles {

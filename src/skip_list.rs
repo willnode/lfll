@@ -351,6 +351,8 @@ impl<K: Default + Ord, V> List<K, V, SkipNode<K, V>> for LockFreeSkipList<K, V> 
 mod tests {
     use std::{sync::Arc, thread};
 
+    use crate::{ScopedGarbageCollector, ThreadedGC};
+
     use super::*;
 
     #[test]
@@ -427,6 +429,7 @@ mod tests {
             for i in (2..=1000).step_by(2) {
                 list_clone1.delete(&i);
             }
+            assert!(ThreadedGC::prune_now() > 0);
         }));
 
         let list_clone2 = Arc::clone(&list);
@@ -434,6 +437,7 @@ mod tests {
             for i in (1..=1000).step_by(2) {
                 list_clone2.delete(&i);
             }
+            assert!(ThreadedGC::prune_now() > 0);
         }));
 
         for handle in handles {

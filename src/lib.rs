@@ -12,6 +12,8 @@ pub use succ::{List, Node};
 
 mod skip_list;
 pub use skip_list::*;
+mod garbage;
+pub use garbage::*;
 mod seedable;
 pub use seedable::*;
 

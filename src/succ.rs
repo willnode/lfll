@@ -2,6 +2,9 @@ use core::marker::PhantomData;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 
+use crate::GarbageCollector;
+use crate::ThreadedGC;
+
 const MARK_BIT: usize = 1;
 const FLAG_BIT: usize = 2;
 const PTR_MASK: usize = !(MARK_BIT | FLAG_BIT);
@@ -294,7 +297,9 @@ where
             let new_val = SuccData::new(next_node);
 
             // if failed, other thread may already done it
-            let _ = (*prev_node).swap_successor(expected, new_val);
+            if let Ok(e) = (*prev_node).swap_successor(expected, new_val) {
+                ThreadedGC::push(e.ptr);
+            }
         }
     }
 }
