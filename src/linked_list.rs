@@ -88,7 +88,7 @@ where
         }
     }
 
-    pub fn init(&mut self) {
+    pub fn init(&self) {
         let dummy_head = Box::into_raw(Box::new(LinkedNode {
             key: K::default(),
             element: None,
@@ -96,7 +96,7 @@ where
             succ: AtomicSucc::default(),
         }));
 
-        self.head = AtomicPtr::new(dummy_head);
+        self.head.store(dummy_head, Ordering::Relaxed);
     }
 
     /// Insert into linked list. Key must unique, return true if inserted.

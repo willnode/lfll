@@ -29,7 +29,7 @@ impl<T> LockFreeDequeList<T> {
         }
     }
 
-    pub fn init(&mut self) {
+    pub fn init(&self) {
         self.list.init();
         unsafe { (*self.list.head_node()).key = i64::MIN };
     }
