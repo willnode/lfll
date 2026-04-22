@@ -90,15 +90,28 @@ where
     /// Insert into linked list. Key must unique, return true if inserted.
     /// This operation is O(N).
     pub fn insert(&self, key: K, value: V) -> bool {
+        unsafe { !self.insert_from(key, value, self.head_node()).is_null() }
+    }
+
+    pub unsafe fn head_node(&self) -> *mut LinkedNode<K, V> {
+        self.head.load(Ordering::Acquire)
+    }
+
+    /// Insert into linked list from hinted node position. Key must unique, return true if inserted.
+    pub unsafe fn insert_from(
+        &self,
+        key: K,
+        value: V,
+        curr_node: *mut LinkedNode<K, V>,
+    ) -> *mut LinkedNode<K, V> {
         unsafe {
             let new_node = Box::into_raw(Box::new(LinkedNode::new(key, Some(value))));
-            let head_ptr = self.head.load(Ordering::Acquire);
 
-            let (mut prev_node, mut next_node) = self.search_from(&(*new_node).key, head_ptr);
+            let (mut prev_node, mut next_node) = self.search_from(&(*new_node).key, curr_node);
 
             if !next_node.is_null() && (*next_node).key == (*new_node).key {
                 let _ = Box::from_raw(new_node);
-                return false;
+                return ptr::null_mut();
             }
 
             loop {
@@ -113,7 +126,7 @@ where
                     let new_val = SuccData::new(new_node);
 
                     match (*prev_node).swap_successor(expected, new_val) {
-                        Ok(_) => return true,
+                        Ok(_) => return new_node,
                         Err(actual) => {
                             if actual.flag {
                                 self.help_flagged(prev_node, actual.ptr);
@@ -135,7 +148,7 @@ where
 
                             if !next_node.is_null() && (*next_node).key == (*new_node).key {
                                 let _ = Box::from_raw(new_node);
-                                return false;
+                                return ptr::null_mut();
                             }
                         }
                     }

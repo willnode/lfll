@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
-use lfll::{List, LockFreeLinkedList, LockFreeSkipList};
+use lfll::{List, LockFreeLinkedList, LockFreeSkipList, LockFreeDequeList};
 
 #[derive(Clone, Copy)]
 enum Op {
@@ -91,6 +91,33 @@ fn bench_concurrent_ds(c: &mut Criterion) {
                                 }
                                 Op::Delete(k) => {
                                     black_box(list_ref.delete(&k));
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        })
+    });
+
+    group.bench_function("LockFreeDequeList", |b| {
+        b.iter(|| {
+            let list = Arc::new(LockFreeDequeList::<i32>::new());
+
+            thread::scope(|s| {
+                for workload in &thread_workloads {
+                    let list_ref = &list;
+                    s.spawn(move || {
+                        for &op in workload {
+                            match op {
+                                Op::Contains(k) => {
+                                    black_box(list_ref.contains(&k.into()));
+                                }
+                                Op::Insert(k) => {
+                                    black_box(list_ref.push_back(k.into()));
+                                }
+                                Op::Delete(k) => {
+                                    black_box(list_ref.delete(k.into()));
                                 }
                             }
                         }

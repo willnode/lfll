@@ -10,3 +10,6 @@ mod skip_list;
 pub use skip_list::*;
 mod seedable;
 pub use seedable::*;
+
+mod deque_list;
+pub use deque_list::*;
