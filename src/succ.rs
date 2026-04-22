@@ -22,8 +22,28 @@ pub struct SuccData<T> {
 }
 
 impl<T> SuccData<T> {
-    pub fn new(ptr: *mut T, mark: bool, flag: bool) -> Self {
-        Self { ptr, mark, flag }
+    pub fn new(ptr: *mut T) -> Self {
+        Self {
+            ptr,
+            mark: false,
+            flag: false,
+        }
+    }
+
+    pub fn new_marked(ptr: *mut T) -> Self {
+        Self {
+            ptr,
+            mark: true,
+            flag: false,
+        }
+    }
+
+    pub fn new_flagged(ptr: *mut T) -> Self {
+        Self {
+            ptr,
+            mark: false,
+            flag: true,
+        }
     }
 
     fn into_packed(self) -> usize {
@@ -89,7 +109,7 @@ impl<T> AtomicSucc<T> {
 
 impl<T> Default for AtomicSucc<T> {
     fn default() -> Self {
-        Self::new(SuccData::new(core::ptr::null_mut(), false, false))
+        Self::new(SuccData::new(core::ptr::null_mut()))
     }
 }
 
@@ -98,13 +118,17 @@ where
     K: Ord + Default,
     Self: Sized,
 {
-    fn key(&self) -> K;
+    fn key(&self) -> &K;
+
+    fn element(&self) -> Option<&V>;
 
     fn load_backlink(&self) -> *mut Self;
 
     fn store_backlink(&self, new_val: *mut Self);
 
     fn load_successor(&self) -> SuccData<Self>;
+
+    fn store_successor(&self, new_val: SuccData<Self>);
 
     fn swap_successor(
         &self,
@@ -113,12 +137,73 @@ where
     ) -> Result<SuccData<Self>, SuccData<Self>>;
 }
 
+/// An iterator over the lock-free list.
+pub struct NodeIter<'a, K, V, N>
+where
+    K: Ord + Default,
+    N: Node<K, V>,
+{
+    next_ptr: *mut N,
+    _marker: PhantomData<&'a N>,
+    // Why?
+    _marker1: PhantomData<&'a K>,
+    _marker2: PhantomData<&'a V>,
+}
+
+impl<'a, K: Default + Ord, V, N: Node<K, V>> NodeIter<'a, K, V, N> {
+    pub fn new(ptr: *mut N) -> Self {
+        Self {
+            next_ptr: ptr,
+            _marker: PhantomData,
+            _marker1: PhantomData,
+            _marker2: PhantomData,
+        }
+    }
+}
+
+impl<'a, K: Default + Ord + Clone, V, N: Node<K, V>> Iterator for NodeIter<'a, K, V, N> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unsafe {
+            while !self.next_ptr.is_null() {
+                let node = &*self.next_ptr;
+                let succ_val = node.load_successor();
+
+                self.next_ptr = succ_val.ptr;
+
+                if !succ_val.mark {
+                    if let Some(val) = node.element() {
+                        return Some((&node.key(), val));
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
 pub trait List<K, V, N>
 where
     K: Ord + Default,
     N: Node<K, V>,
 {
-    unsafe fn search(&self, k: &K, curr_node: *mut N) -> (*mut N, *mut N);
+    unsafe fn search_from(&self, key: &K, curr_node: *mut N) -> (*mut N, *mut N);
+
+    unsafe fn search_node(&self, key: &K) -> Option<*mut N>;
+
+    fn contains(&self, key: &K) -> bool {
+        unsafe { self.search_node(key) }.is_some()
+    }
+
+    fn get<'a>(&'a self, key: &'a K) -> Option<&'a V>
+    where
+        N: 'a,
+    {
+        unsafe { self.search_node(key) }
+            .map(|s| unsafe { (*s).element() })
+            .flatten()
+    }
 
     /// Flag the node for deletion (will block!)
     unsafe fn try_flag(&self, mut prev_node: *mut N, target_node: *mut N) -> (*mut N, bool) {
@@ -130,8 +215,8 @@ where
                     return (prev_node, false);
                 }
 
-                let expected = SuccData::new(target_node, false, false);
-                let new_val = SuccData::new(target_node, false, true);
+                let expected = SuccData::new(target_node);
+                let new_val = SuccData::new_flagged(target_node);
 
                 match (*prev_node).swap_successor(expected, new_val) {
                     Ok(_) => return (prev_node, true),
@@ -149,7 +234,8 @@ where
                             }
                         }
 
-                        let (new_prev, del_node) = self.search(&(*target_node).key(), prev_node);
+                        let (new_prev, del_node) =
+                            self.search_from(&(*target_node).key(), prev_node);
                         if del_node != target_node {
                             return (core::ptr::null_mut(), false);
                         }
@@ -170,8 +256,8 @@ where
                     break;
                 }
 
-                let expected = SuccData::new(succ_val.ptr, false, false);
-                let new_val = SuccData::new(succ_val.ptr, true, false);
+                let expected = SuccData::new(succ_val.ptr);
+                let new_val = SuccData::new_marked(succ_val.ptr);
 
                 match (*del_node).swap_successor(expected, new_val) {
                     Ok(_) => break,
@@ -185,7 +271,7 @@ where
         }
     }
 
-    /// Unflag the node from deletion (not blocking)
+    /// Mark the node to unflag it (may blocking)
     unsafe fn help_flagged(&self, prev_node: *mut N, del_node: *mut N) {
         unsafe {
             (*del_node).store_backlink(prev_node);
@@ -195,17 +281,17 @@ where
                 self.try_mark(del_node);
             }
 
-            self.help_marked(prev_node, del_node);
+            self.help_unflag(prev_node, del_node);
         }
     }
 
-    /// Unmark the node such that it can't be changed (not blocking)
-    unsafe fn help_marked(&self, prev_node: *mut N, del_node: *mut N) {
+    /// Unflag the node such that it can't be changed (not blocking)
+    unsafe fn help_unflag(&self, prev_node: *mut N, del_node: *mut N) {
         unsafe {
             let next_node = (*del_node).load_successor().ptr;
 
-            let expected = SuccData::new(del_node, false, true);
-            let new_val = SuccData::new(next_node, false, false);
+            let expected = SuccData::new_flagged(del_node);
+            let new_val = SuccData::new(next_node);
 
             // if failed, other thread may already done it
             let _ = (*prev_node).swap_successor(expected, new_val);

@@ -4,3 +4,9 @@
 mod linked_list;
 pub use linked_list::*;
 pub(crate) mod succ;
+pub use succ::{List, Node};
+
+mod skip_list;
+pub use skip_list::*;
+mod seedable;
+pub use seedable::*;

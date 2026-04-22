@@ -1,12 +1,11 @@
 use core::{
-    marker::PhantomData,
     ptr,
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-use crate::succ::{AtomicSucc, List, Node, SuccData};
+use crate::succ::{AtomicSucc, List, Node, NodeIter, SuccData};
 
-/// LockFreeLinkedList
+/// LockFreeLinkedList node
 pub struct LinkedNode<K, V> {
     /// The key helps Linked List in Ordered fashion
     pub key: K,
@@ -24,33 +23,41 @@ impl<K, V> LinkedNode<K, V> {
             key,
             element,
             backlink: AtomicPtr::new(ptr::null_mut()),
-            succ: AtomicSucc::new(SuccData::new(ptr::null_mut(), false, false)),
+            succ: AtomicSucc::default(),
         }
     }
 }
 
-impl<K: Clone + Default + Ord, V> Node<K, V> for LinkedNode<K, V> {
-    fn key(&self) -> K {
-        self.key.clone()
+impl<K: Default + Ord, V> Node<K, V> for LinkedNode<K, V> {
+    fn key(&self) -> &K {
+        &self.key
     }
 
-    fn load_backlink(&self) -> *mut LinkedNode<K, V> {
+    fn element(&self) -> Option<&V> {
+        self.element.as_ref()
+    }
+
+    fn load_backlink(&self) -> *mut Self {
         self.backlink.load(Ordering::Acquire)
     }
 
-    fn store_backlink(&self, new_val: *mut LinkedNode<K, V>) {
+    fn store_backlink(&self, new_val: *mut Self) {
         self.backlink.store(new_val, Ordering::Release)
     }
 
-    fn load_successor(&self) -> SuccData<LinkedNode<K, V>> {
+    fn load_successor(&self) -> SuccData<Self> {
         self.succ.load(Ordering::Acquire)
+    }
+
+    fn store_successor(&self, new_val: SuccData<Self>) {
+        self.succ.store(new_val, Ordering::Release)
     }
 
     fn swap_successor(
         &self,
-        expected: SuccData<LinkedNode<K, V>>,
-        new_val: SuccData<LinkedNode<K, V>>,
-    ) -> Result<SuccData<LinkedNode<K, V>>, SuccData<LinkedNode<K, V>>> {
+        expected: SuccData<Self>,
+        new_val: SuccData<Self>,
+    ) -> Result<SuccData<Self>, SuccData<Self>> {
         self.succ
             .compare_exchange(expected, new_val, Ordering::SeqCst, Ordering::SeqCst)
     }
@@ -65,7 +72,7 @@ pub struct LockFreeLinkedList<K, V> {
 
 impl<K, V> LockFreeLinkedList<K, V>
 where
-    K: Clone + Default + Ord,
+    K: Default + Ord,
 {
     pub fn new() -> Self {
         let dummy_head = Box::into_raw(Box::new(LinkedNode {
@@ -87,7 +94,7 @@ where
             let new_node = Box::into_raw(Box::new(LinkedNode::new(key, Some(value))));
             let head_ptr = self.head.load(Ordering::Acquire);
 
-            let (mut prev_node, mut next_node) = self.search(&(*new_node).key, head_ptr);
+            let (mut prev_node, mut next_node) = self.search_from(&(*new_node).key, head_ptr);
 
             if !next_node.is_null() && (*next_node).key == (*new_node).key {
                 let _ = Box::from_raw(new_node);
@@ -100,12 +107,10 @@ where
                 if prev_succ.flag {
                     self.help_flagged(prev_node, prev_succ.ptr);
                 } else {
-                    (*new_node)
-                        .succ
-                        .store(SuccData::new(next_node, false, false), Ordering::Release);
+                    (*new_node).store_successor(SuccData::new(next_node));
 
-                    let expected = SuccData::new(next_node, false, false);
-                    let new_val = SuccData::new(new_node, false, false);
+                    let expected = SuccData::new(next_node);
+                    let new_val = SuccData::new(new_node);
 
                     match (*prev_node).swap_successor(expected, new_val) {
                         Ok(_) => return true,
@@ -115,7 +120,7 @@ where
                             }
 
                             while (*prev_node).load_successor().mark {
-                                let bl = (*prev_node).backlink.load(Ordering::Acquire);
+                                let bl = (*prev_node).load_backlink();
                                 if !bl.is_null() {
                                     prev_node = bl;
                                 } else {
@@ -123,7 +128,8 @@ where
                                 }
                             }
 
-                            let (new_prev, new_next) = self.search(&(*new_node).key, prev_node);
+                            let (new_prev, new_next) =
+                                self.search_from(&(*new_node).key, prev_node);
                             prev_node = new_prev;
                             next_node = new_next;
 
@@ -143,7 +149,7 @@ where
     pub fn delete(&self, key: &K) -> bool {
         unsafe {
             let head_ptr = self.head.load(Ordering::Acquire);
-            let (prev_node, del_node) = self.search(key, head_ptr);
+            let (prev_node, del_node) = self.search_from(key, head_ptr);
 
             if del_node.is_null() || (*del_node).key != *key {
                 return false;
@@ -159,41 +165,18 @@ where
         }
     }
 
-    /// Check if key contained in list.
-    /// This operation is O(N).
-    pub fn contains(&self, key: &K) -> bool {
+    pub fn iter(&self) -> NodeIter<'_, K, V, LinkedNode<K, V>> {
         unsafe {
             let head_ptr = self.head.load(Ordering::Acquire);
-            let (_, next_node) = self.search(key, head_ptr);
-
-            !next_node.is_null() && (*next_node).key == *key
-        }
-    }
-}
-
-/// An iterator over the lock-free linked list.
-pub struct Iter<'a, K, V> {
-    next_ptr: *mut LinkedNode<K, V>,
-    _marker: PhantomData<&'a LinkedNode<K, V>>,
-}
-
-impl<K: Clone + Default + Ord, V> LockFreeLinkedList<K, V> {
-    pub fn iter(&self) -> Iter<'_, K, V> {
-        unsafe {
-            let head_ptr = self.head.load(Ordering::Acquire);
-
             let first_node = (*head_ptr).load_successor().ptr;
-
-            Iter {
-                next_ptr: first_node,
-                _marker: PhantomData,
-            }
+            NodeIter::new(first_node)
         }
     }
 }
 
-impl<K: Clone + Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K, V> {
-    unsafe fn search(
+impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K, V> {
+    /// Search from curr_node
+    unsafe fn search_from(
         &self,
         k: &K,
         mut curr_node: *mut LinkedNode<K, V>,
@@ -208,7 +191,7 @@ impl<K: Clone + Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinke
                 while next_succ_val.mark && (!curr_succ_val.mark || curr_succ_val.ptr != next_node)
                 {
                     if curr_succ_val.ptr == next_node {
-                        self.help_marked(curr_node, next_node);
+                        self.help_unflag(curr_node, next_node);
                     }
 
                     next_node = (*curr_node).load_successor().ptr;
@@ -230,26 +213,16 @@ impl<K: Clone + Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinke
             (curr_node, next_node)
         }
     }
-}
-
-impl<'a, K: Clone + Default + Ord, V> Iterator for Iter<'a, K, V> {
-    type Item = (&'a K, &'a V);
-
-    fn next(&mut self) -> Option<Self::Item> {
+    unsafe fn search_node(&self, key: &K) -> Option<*mut LinkedNode<K, V>> {
         unsafe {
-            while !self.next_ptr.is_null() {
-                let node = &*self.next_ptr;
-                let succ_val = node.load_successor();
+            let head_ptr = self.head.load(Ordering::Acquire);
+            let (_, next_node) = self.search_from(key, head_ptr);
 
-                self.next_ptr = succ_val.ptr;
-
-                if !succ_val.mark {
-                    if let Some(ref val) = node.element {
-                        return Some((&node.key, val));
-                    }
-                }
+            if !next_node.is_null() && (*next_node).key == *key {
+                Some(next_node)
+            } else {
+                None
             }
-            None
         }
     }
 }

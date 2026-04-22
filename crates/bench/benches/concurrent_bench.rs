@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
-use lfll::LockFreeLinkedList;
+use lfll::{List, LockFreeLinkedList, LockFreeSkipList};
 
 #[derive(Clone, Copy)]
 enum Op {
@@ -19,7 +19,7 @@ fn generate_workload(num_ops: usize, read_percent: u8, insert_percent: u8) -> Ve
     let mut ops = Vec::with_capacity(num_ops);
 
     for _ in 0..num_ops {
-        let key = rng.gen_range(1..50);
+        let key = rng.gen_range(1..1000);
         let roll = rng.gen_range(0..100);
 
         if roll < read_percent {
@@ -39,8 +39,6 @@ fn bench_concurrent_ds(c: &mut Criterion) {
     let num_threads = 8;
     let ops_per_thread = 5_000;
 
-    // Increase this to check contains() operation
-    // PS: it will be slower than BTreeMap!
     let read_ratio = 0;
     let insert_ratio = 50;
 
@@ -51,6 +49,33 @@ fn bench_concurrent_ds(c: &mut Criterion) {
     group.bench_function("LockFreeLinkedList", |b| {
         b.iter(|| {
             let list = Arc::new(LockFreeLinkedList::<i32, i32>::new());
+
+            thread::scope(|s| {
+                for workload in &thread_workloads {
+                    let list_ref = &list;
+                    s.spawn(move || {
+                        for &op in workload {
+                            match op {
+                                Op::Contains(k) => {
+                                    black_box(list_ref.contains(&k));
+                                }
+                                Op::Insert(k) => {
+                                    black_box(list_ref.insert(k, k));
+                                }
+                                Op::Delete(k) => {
+                                    black_box(list_ref.delete(&k));
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        })
+    });
+
+    group.bench_function("LockFreeSkipList", |b| {
+        b.iter(|| {
+            let list = Arc::new(LockFreeSkipList::<i32, i32>::new());
 
             thread::scope(|s| {
                 for workload in &thread_workloads {
