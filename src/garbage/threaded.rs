@@ -69,7 +69,7 @@ impl ScopedGarbageCollector for ThreadedGC {
         })
     }
 
-    fn prune_now() -> usize {
+    unsafe fn prune_now() -> usize {
         LOCAL_TRASH.with(|s| {
             let mut i = 0;
             for item in s.borrow_mut().drain() {

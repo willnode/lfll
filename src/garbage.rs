@@ -23,9 +23,12 @@ pub trait ScopedGarbageCollector {
     fn new() -> Arc<Mutex<Self>>;
     /// Collect garbage from the local collector
     fn collect(&mut self);
-    /// Drop garbage from the local collector
-    fn prune_now() -> usize;
-    /// Drop the global collector garbage
+    /// Drop garbage from the local collector.
+    /// Unsafe because other thread maybe accessing
+    unsafe fn prune_now() -> usize;
+    /// Drop the global collector garbage.
+    /// This is always safe because garbage are moved to global then thread destroyed.
+    /// Note that current thread will not be part of pruning.
     fn prune_all() -> usize;
     /// Drop collected garbage
     fn prune(&mut self) -> usize;

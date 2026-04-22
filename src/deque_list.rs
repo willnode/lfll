@@ -97,7 +97,10 @@ impl<T> List<i64, T, LinkedNode<i64, T>> for LockFreeDequeList<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, thread};
+    use std::{
+        sync::{Arc, Mutex},
+        thread,
+    };
 
     use crate::{ScopedGarbageCollector, ThreadedGC};
 
@@ -198,20 +201,24 @@ mod tests {
             list.push_back(i);
         }
 
+        let collector: Arc<Mutex<ThreadedGC>> = ThreadedGC::new();
+
         let list_clone1 = Arc::clone(&list);
+        let collector1 = Arc::clone(&collector);
         handles.push(thread::spawn(move || {
             for i in (2..=1000).step_by(2) {
                 list_clone1.delete(&i);
             }
-            assert!(ThreadedGC::prune_now() > 400);
+            collector1.lock().unwrap().collect();
         }));
 
         let list_clone2 = Arc::clone(&list);
+        let collector2 = Arc::clone(&collector);
         handles.push(thread::spawn(move || {
             for i in (1..=1000).step_by(2) {
                 list_clone2.delete(&i);
             }
-            assert!(ThreadedGC::prune_now() > 400);
+            collector2.lock().unwrap().collect();
         }));
 
         for handle in handles {
@@ -221,5 +228,7 @@ mod tests {
         for i in 1..=1000 {
             assert!(!list.contains(&i), "Key {} should have been deleted", i);
         }
+
+        assert_eq!(collector.lock().unwrap().prune(), 1000);
     }
 }
