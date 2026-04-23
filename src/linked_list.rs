@@ -77,7 +77,7 @@ where
     K: Default + Ord,
 {
     pub fn new() -> Self {
-        let mut r = Self::uninit();
+        let r = Self::uninit();
         r.init();
         r
     }

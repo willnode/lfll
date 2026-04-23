@@ -15,7 +15,7 @@ pub struct LockFreeDequeList<T> {
 
 impl<T> LockFreeDequeList<T> {
     pub fn new() -> Self {
-        let mut r = Self::uninit();
+        let r = Self::uninit();
         r.init();
         r
     }
@@ -38,18 +38,25 @@ impl<T> LockFreeDequeList<T> {
         self.tail_hint.load(Ordering::Acquire)
     }
 
+    /// Push an item to start of linked list
     pub fn push_front(&self, value: T) -> K {
-        let seq = self.front_seq.fetch_sub(1, Ordering::SeqCst);
+        let seq = self.reserve_front();
+        self.push_front_reserved(value, seq)
+    }
+
+    pub fn push_front_reserved(&self, value: T, seq: K) -> K {
         self.list.insert(seq, value);
         seq
     }
 
+    /// Push an item to end of linked list
     pub fn push_back(&self, value: T) -> K {
         let seq = self.reserve_back();
         self.push_back_reserved(value, seq)
     }
 
-    pub fn push_back_reserved(&self, value: T, seq: i64) -> K {
+    /// Push an item to reserved key from `reserve_back`
+    pub fn push_back_reserved(&self, value: T, seq: K) -> K {
         unsafe {
             let mut hint = self.tail_node();
             let head_ptr = self.head_node();
@@ -78,8 +85,14 @@ impl<T> LockFreeDequeList<T> {
         seq
     }
 
+    /// Reserve a key for later push_back
     pub fn reserve_back(&self) -> K {
         self.back_seq.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Reserve a key for later push_front
+    pub fn reserve_front(&self) -> K {
+        self.front_seq.fetch_sub(1, Ordering::SeqCst)
     }
 
     pub fn delete(&self, key: &K) -> bool {
@@ -238,8 +251,8 @@ mod tests {
         let list_clone1 = Arc::clone(&list);
         let collector1 = Arc::clone(&collector);
         handles.push(thread::spawn(move || {
-            for i in (2..=1000).step_by(2) {
-                list_clone1.delete(&i);
+            for _ in (2..=1000).step_by(2) {
+                assert!(list_clone1.pop_front().is_some())
             }
             collector1.lock().unwrap().collect();
         }));
@@ -247,8 +260,8 @@ mod tests {
         let list_clone2 = Arc::clone(&list);
         let collector2 = Arc::clone(&collector);
         handles.push(thread::spawn(move || {
-            for i in (1..=1000).step_by(2) {
-                list_clone2.delete(&i);
+            for _ in (1..=1000).step_by(2) {
+                assert!(list_clone2.pop_front().is_some())
             }
             collector2.lock().unwrap().collect();
         }));

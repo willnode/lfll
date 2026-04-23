@@ -237,6 +237,14 @@ where
         results
     }
 
+    fn is_empty(&self) -> bool {
+        unsafe {
+            let head_ptr = self.head_node();
+            let first_node = (*head_ptr).load_successor().ptr;
+            first_node.is_null()
+        }
+    }
+
     fn get<'a>(&'a self, key: &'a K) -> Option<&'a V>
     where
         N: 'a,
@@ -345,6 +353,38 @@ where
             // if failed, other thread may already done it
             if let Ok(e) = (*prev_node).swap_successor(expected, new_val) {
                 DefaultGC::push(e.ptr);
+            }
+        }
+    }
+
+    /// Removes and returns the first element in the list. The element does not copied into stack.
+    fn pop_front<'a>(&'a self) -> Option<(&'a K, &'a V)>
+    where
+        N: 'a,
+    {
+        unsafe {
+            let mut prev_node = self.head_node();
+
+            loop {
+                let prev_succ_data = (*prev_node).load_successor();
+                let del_node = prev_succ_data.ptr;
+
+                if del_node.is_null() {
+                    return None; // The list is empty
+                }
+
+                let (actual_prev, _) = self.try_flag(prev_node, del_node);
+
+                if !actual_prev.is_null() {
+                    self.help_flagged(actual_prev, del_node);
+
+                    let key = (*del_node).key();
+                    let value = (*del_node).element()?;
+                    return Some((key, value));
+                }
+
+                prev_node = del_node;
+                continue;
             }
         }
     }
