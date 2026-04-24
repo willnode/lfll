@@ -73,15 +73,10 @@ unsafe impl<K: Send + Sync, V: Send + Sync> Send for LockFreeSkipList<K, V> {}
 unsafe impl<K: Send + Sync, V: Send + Sync> Sync for LockFreeSkipList<K, V> {}
 
 impl<K: Clone + Default + Ord, V> LockFreeSkipList<K, V> {
-    pub fn new() -> Self {
-        let r = Self::uninit();
-        r.init();
-        r
-    }
-
-    pub const fn uninit() -> Self {
-        let head_tower = [const { AtomicPtr::new(ptr::null_mut()) }; MAX_LEVEL];
-        Self { head_tower }
+    pub const fn new() -> Self {
+        Self {
+            head_tower: [const { AtomicPtr::new(ptr::null_mut()) }; MAX_LEVEL],
+        }
     }
 
     pub fn init(&self) {
@@ -96,8 +91,28 @@ impl<K: Clone + Default + Ord, V> LockFreeSkipList<K, V> {
         }));
 
         unsafe { (*root).tower_root = root };
-        self.head_tower[0].store(root, Ordering::Relaxed);
-        let mut down = root;
+
+        let mut down = match self.head_tower[0].compare_exchange(
+            ptr::null_mut(),
+            root,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => root,
+            Err(_) => {
+                let _ = unsafe { Box::from_raw(root) };
+                let r = self.head_tower[0].load(Ordering::Relaxed);
+                debug_assert!(!r.is_null());
+                // spin loop until the last tower is initialized
+                loop {
+                    let r = self.head_tower[MAX_LEVEL - 1].load(Ordering::Relaxed);
+                    if !r.is_null() {
+                        break;
+                    }
+                }
+                return;
+            }
+        };
 
         // dummies at each level
         for i in 1..MAX_LEVEL {
@@ -145,7 +160,7 @@ impl<K: Clone + Default + Ord, V> LockFreeSkipList<K, V> {
         tower
     }
 
-    pub unsafe fn prune_tower(tower: [*mut SkipNode<K, V>; MAX_LEVEL]) {
+    unsafe fn prune_tower(tower: [*mut SkipNode<K, V>; MAX_LEVEL]) {
         for i in 0..MAX_LEVEL {
             if tower[i].is_null() {
                 break;
@@ -162,7 +177,11 @@ impl<K: Clone + Default + Ord, V> LockFreeSkipList<K, V> {
 
             for level in 0..=top_level {
                 let curr_insert_node = tower[level];
-                let mut prev_node = self.head_level(level);
+                let mut prev_node = if level == 0 {
+                    self.head_node()
+                } else {
+                    self.level_node(level)
+                };
 
                 loop {
                     if level > 0 && (*root_node).load_successor().mark {
@@ -212,13 +231,23 @@ impl<K: Clone + Default + Ord, V> LockFreeSkipList<K, V> {
         true
     }
 
-    pub fn head_level(&self, level: usize) -> *mut SkipNode<K, V> {
+    /// SAFETY: Must call `tail_node` or `head_node` otherwise it maybe unitialized
+    pub unsafe fn level_node(&self, level: usize) -> *mut SkipNode<K, V> {
         self.head_tower[level].load(Ordering::Relaxed)
+    }
+
+    pub fn tail_node(&self) -> *mut SkipNode<K, V> {
+        let r = self.head_tower[MAX_LEVEL - 1].load(Ordering::Relaxed);
+        if r.is_null() {
+            self.init();
+            return self.head_tower[MAX_LEVEL - 1].load(Ordering::Relaxed);
+        }
+        r
     }
 
     pub fn delete(&self, key: &K) -> bool {
         unsafe {
-            let mut curr_node = self.head_level(MAX_LEVEL - 1);
+            let mut curr_node = self.tail_node();
             let mut target_root = ptr::null_mut();
 
             for _ in (0..MAX_LEVEL).rev() {
@@ -238,7 +267,7 @@ impl<K: Clone + Default + Ord, V> LockFreeSkipList<K, V> {
                 return false;
             }
 
-            let mut prev_root = self.head_level(0);
+            let mut prev_root = self.head_node();
             loop {
                 let (p, n) = self.search_from(key, prev_root);
 
@@ -253,7 +282,7 @@ impl<K: Clone + Default + Ord, V> LockFreeSkipList<K, V> {
 
                     if result {
                         for level in 1..MAX_LEVEL {
-                            self.search_from(key, self.head_level(level));
+                            self.search_from(key, self.level_node(level));
                         }
                         return true;
                     }
@@ -330,7 +359,7 @@ impl<K: Clone + Default + Ord, V> List<K, V, SkipNode<K, V>> for LockFreeSkipLis
     unsafe fn search_node(&self, key: &K) -> Option<*mut SkipNode<K, V>> {
         unsafe {
             // Start from the highest tower
-            let mut curr_node = self.head_level(MAX_LEVEL - 1);
+            let mut curr_node = self.tail_node();
 
             loop {
                 let next_node = (*curr_node).load_successor().ptr;
@@ -357,7 +386,12 @@ impl<K: Clone + Default + Ord, V> List<K, V, SkipNode<K, V>> for LockFreeSkipLis
     }
 
     unsafe fn head_node(&self) -> *mut SkipNode<K, V> {
-        self.head_tower[0].load(Ordering::Relaxed)
+        let r = self.head_tower[0].load(Ordering::Relaxed);
+        if r.is_null() {
+            self.init();
+            return self.head_tower[0].load(Ordering::Relaxed);
+        }
+        r
     }
 }
 

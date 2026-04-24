@@ -76,19 +76,14 @@ impl<K, V> LockFreeLinkedList<K, V>
 where
     K: Default + Ord,
 {
-    pub fn new() -> Self {
-        let r = Self::uninit();
-        r.init();
-        r
-    }
-
-    pub const fn uninit() -> Self {
+    pub const fn new() -> Self {
         Self {
             head: AtomicPtr::new(ptr::null_mut()),
         }
     }
 
-    pub fn init(&self) {
+    fn init(&self) -> *mut LinkedNode<K, V> {
+        // TODO: #![cold]
         let dummy_head = Box::into_raw(Box::new(LinkedNode {
             key: K::default(),
             element: None,
@@ -96,7 +91,20 @@ where
             succ: AtomicSucc::default(),
         }));
 
-        self.head.store(dummy_head, Ordering::Relaxed);
+        match self.head.compare_exchange(
+            ptr::null_mut(),
+            dummy_head,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => dummy_head,
+            Err(_) => {
+                let _ = unsafe { Box::from_raw(dummy_head) };
+                let r = self.head.load(Ordering::Relaxed);
+                debug_assert!(!r.is_null());
+                r
+            }
+        }
     }
 
     /// Insert into linked list. Key must unique, return true if inserted.
@@ -169,7 +177,7 @@ where
     /// This operation is O(N) and does not reclaim allocation from Value.
     pub fn delete(&self, key: &K) -> bool {
         unsafe {
-            let head_ptr = self.head.load(Ordering::Relaxed);
+            let head_ptr = self.head_node();
             let (prev_node, del_node) = self.search_from(key, head_ptr);
 
             if del_node.is_null() || (*del_node).key != *key {
@@ -234,7 +242,7 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
     }
     unsafe fn search_node(&self, key: &K) -> Option<*mut LinkedNode<K, V>> {
         unsafe {
-            let head_ptr = self.head.load(Ordering::Relaxed);
+            let head_ptr = self.head_node();
             let (_, next_node) = self.search_from(key, head_ptr);
 
             if !next_node.is_null() && (*next_node).key == *key {
@@ -245,7 +253,8 @@ impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K,
         }
     }
     unsafe fn head_node(&self) -> *mut LinkedNode<K, V> {
-        self.head.load(Ordering::Relaxed)
+        let head = self.head.load(Ordering::Relaxed);
+        if head.is_null() { self.init() } else { head }
     }
 }
 

@@ -14,24 +14,13 @@ pub struct LockFreeDequeList<T> {
 }
 
 impl<T> LockFreeDequeList<T> {
-    pub fn new() -> Self {
-        let r = Self::uninit();
-        r.init();
-        r
-    }
-
-    pub const fn uninit() -> Self {
+    pub const fn new() -> Self {
         Self {
-            list: LockFreeLinkedList::uninit(),
+            list: LockFreeLinkedList::new(),
             front_seq: AtomicI64::new(0),
             back_seq: AtomicI64::new(1),
             tail_hint: AtomicPtr::new(core::ptr::null_mut()),
         }
-    }
-
-    pub fn init(&self) {
-        self.list.init();
-        unsafe { (*self.list.head_node()).key = i64::MIN };
     }
 
     pub unsafe fn tail_node(&self) -> *mut LinkedNode<K, T> {
