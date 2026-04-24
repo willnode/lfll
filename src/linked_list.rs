@@ -8,6 +8,7 @@ use core::{
 };
 
 /// `LockFreeLinkedList` node internal data.
+#[derive(Debug)]
 pub struct LinkedNode<K, V> {
     /// The key helps Linked List in Ordered fashion
     pub key: K,
@@ -67,6 +68,7 @@ impl<K: Default + Ord, V> Node<K, V> for LinkedNode<K, V> {
 
 /// Lock Free Linked List, provides minimal implementation to ordered linked list.
 /// Provides very optimal performance for short linked list without key lookup table.
+#[derive(Debug)]
 pub struct LockFreeLinkedList<K, V> {
     /// Always a dummy head
     head: AtomicPtr<LinkedNode<K, V>>,

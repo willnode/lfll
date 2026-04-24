@@ -73,6 +73,7 @@ impl<T> SuccData<T> {
 }
 
 /// Structure that holds SuccData inside an AtomicUsize
+#[derive(Debug)]
 pub struct AtomicSucc<T> {
     inner: AtomicUsize,
     _marker: PhantomData<*mut T>,

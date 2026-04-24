@@ -9,6 +9,7 @@ use crate::succ::SuccData;
 use crate::succ::{AtomicSucc, List, Node};
 
 /// `LockFreeSkipList` node internal data.
+#[derive(Debug)]
 pub struct SkipNode<K, V> {
     /// The key helps Linked List in Ordered fashion
     pub key: K,
@@ -64,6 +65,7 @@ const MAX_LEVEL: usize = 16;
 /// Lock Free Skip List, provides implementation to ordered linked list with table map.
 /// Provides optimal performance for long linked list and key lookup at the cost of insert operation.
 /// Requires random seed at insertion which is provided automatically if K is int-like types.
+#[derive(Debug)]
 pub struct LockFreeSkipList<K, V> {
     /// Head Towers
     head_tower: [AtomicPtr<SkipNode<K, V>>; MAX_LEVEL],

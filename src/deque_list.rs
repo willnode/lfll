@@ -6,6 +6,7 @@ type K = i64;
 
 /// Lock Free Deque List, provides implementation to LIFO/FIFO linked list with indexed i64 managed internally.
 /// Provides very optimal `push_back()` and `push_front()` function compared to vanilla linked list.
+#[derive(Debug)]
 pub struct LockFreeDequeList<T> {
     list: LockFreeLinkedList<K, T>,
     front_seq: AtomicI64,
