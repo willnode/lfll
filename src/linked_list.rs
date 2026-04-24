@@ -85,6 +85,7 @@ where
     fn init(&self) -> *mut LinkedNode<K, V> {
         // TODO: #![cold]
         let dummy_head = Box::into_raw(Box::new(LinkedNode {
+            // this key is not read for head, so any value works
             key: K::default(),
             element: None,
             backlink: AtomicPtr::new(ptr::null_mut()),

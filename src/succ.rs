@@ -194,8 +194,10 @@ where
     K: Ord + Default,
     N: Node<K, V>,
 {
+    /// Search based on key from `curr_node`, return previous and current node (the current node holds the key)
     unsafe fn search_from(&self, key: &K, curr_node: *mut N) -> (*mut N, *mut N);
 
+    /// Search based on key from `head_node`, may have different algorithm than `search_from` for faster search
     unsafe fn search_node(&self, key: &K) -> Option<*mut N>;
 
     unsafe fn head_node(&self) -> *mut N;
@@ -363,7 +365,7 @@ where
         N: 'a,
     {
         unsafe {
-            let mut prev_node = self.head_node();
+            let prev_node = self.head_node();
 
             loop {
                 let prev_succ_data = (*prev_node).load_successor();
@@ -373,9 +375,14 @@ where
                     return None; // The list is empty
                 }
 
-                let (actual_prev, _) = self.try_flag(prev_node, del_node);
+                if prev_succ_data.flag {
+                    self.help_flagged(prev_node, del_node);
+                    continue;
+                }
 
-                if !actual_prev.is_null() {
+                let (actual_prev, success) = self.try_flag(prev_node, del_node);
+
+                if !actual_prev.is_null() && success {
                     self.help_flagged(actual_prev, del_node);
 
                     let key = (*del_node).key();
@@ -383,7 +390,6 @@ where
                     return Some((key, value));
                 }
 
-                prev_node = del_node;
                 continue;
             }
         }

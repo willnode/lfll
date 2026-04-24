@@ -76,12 +76,12 @@ impl<T> LockFreeDequeList<T> {
 
     /// Reserve a key for later push_back
     pub fn reserve_back(&self) -> K {
-        self.back_seq.fetch_add(1, Ordering::SeqCst)
+        self.back_seq.fetch_add(1, Ordering::Relaxed)
     }
 
     /// Reserve a key for later push_front
     pub fn reserve_front(&self) -> K {
-        self.front_seq.fetch_sub(1, Ordering::SeqCst)
+        self.front_seq.fetch_sub(1, Ordering::Relaxed)
     }
 
     pub fn delete(&self, key: &K) -> bool {
