@@ -87,6 +87,11 @@ impl<T> LockFreeDequeList<T> {
     pub fn delete(&self, key: &K) -> bool {
         self.list.delete(key)
     }
+
+    /// Removes and returns the first element in the list. The element does not copied into stack.
+    pub fn pop_front<'a>(&'a self) -> Option<(&'a K, &'a T)> {
+        self.list.pop_front()
+    }
 }
 
 impl<T> List<i64, T, LinkedNode<i64, T>> for LockFreeDequeList<T> {

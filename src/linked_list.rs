@@ -194,6 +194,40 @@ where
             result
         }
     }
+
+    /// Removes and returns the first element in the list. The element does not copied into stack.
+    pub fn pop_front<'a>(&'a self) -> Option<(&'a K, &'a V)> {
+        unsafe {
+            let prev_node = self.head_node();
+
+            loop {
+                let prev_succ_data = (*prev_node).load_successor();
+                let del_node = prev_succ_data.ptr;
+
+                if del_node.is_null() {
+                    return None; // The list is empty
+                }
+
+                if prev_succ_data.flag {
+                    self.help_flagged(prev_node, del_node);
+                    continue;
+                }
+
+                let (actual_prev, success) = self.try_flag(prev_node, del_node);
+
+                if !actual_prev.is_null() && success {
+                    self.help_flagged(actual_prev, del_node);
+
+                    let key = (*del_node).key();
+                    let value = (*del_node).element()?;
+
+                    return Some((key, value));
+                }
+
+                continue;
+            }
+        }
+    }
 }
 
 impl<K: Default + Ord, V> List<K, V, LinkedNode<K, V>> for LockFreeLinkedList<K, V> {
